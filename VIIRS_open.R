@@ -12,8 +12,9 @@ library(rgdal)
 
 
 setwd("C:\\Users\\solre\\Desktop\\S5P")
-filename = "C:\\Users\\solre\\Desktop\\S5P\\VNP46A1.A2020253.h12v12.001.2020254080958.h5"
-
+filename = "C:\\Users\\solre\\Desktop\\S5P\\VNP46A1.A2020285.h12v12.001.2020286073702.h5"
+file_save <- "intermedio.tif"
+file_export <- "DNB_Sensor_Radiance.tif"
 
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # 
 
@@ -27,24 +28,20 @@ filename = "C:\\Users\\solre\\Desktop\\S5P\\VNP46A1.A2020253.h12v12.001.20202540
 
 ## Inspect hdf5
 
-info <-  gdalinfo(filename)
-# info[4]  # [4] "Coordinate System is `'"  
+info <-  gdalinfo(filename) #Abrir hdf5
 
-#info[207]  #Long Name
-info[43]
-crs_viirs = '+proj=sinu +lon_0=0 +x_0=0 +y_0=0 +R=6371007.181 +units=latlon +no_defs'
-
-
+info[207]  #Long Name
+#crs_modis = '+proj=sinu +lon_0=0 +x_0=0 +y_0=0 +R=6371007.181 +units=m +no_defs'
+crs_project = "+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84 +towgs84=0,0,0"
 
 
 
 ## Open hdf5
 sds <- get_subdatasets(filename)
 
-gdal_translate(sds[5], dst_dataset = filename)
+gdal_translate(sds[5], dst_dataset = file_save)
 
-
-VIIRS_raster <- raster(filename, crs = crs_viirs)
+VIIRS_raster <- raster(file_save, crs = crs_project)
 
 
 # NA 
@@ -59,14 +56,6 @@ xmin = as.numeric(substr(info[209], nchar(info[209])-3,nchar(info[209])-1))  #We
 
 extent(VIIRS_raster) <- extent(xmin, xmax, ymin, ymax)
 
-crs_project = "+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84 +towgs84=0,0,0"
 
-VIIRS_raster_reproject_b <- projectRaster(VIIRS_raster,
-                                          crs = crs_project,
-                                          method = "bilinear")
-
-
-file_save <- "DNB_Sensor_Radiance.tif"
-
-writeRaster(VIIRS_raster_reproject_b, file_save, format = "GTiff")
+writeRaster(VIIRS_raster, file_export, format = "GTiff", overwrite=TRUE)
 
