@@ -1,61 +1,76 @@
-## Sol Represa
-# Objective: Open VIIRS - VNP46A1 product
-# 23/10/2020 - La Plata, Argentina
-
-
+## =============================================================================
+## viirs_open.R
+## Objetivo: Abrir producto VIIRS VNP46A1 (Black Marble) y exportar como GeoTIFF
+## Autora: Sol Represa
+## Fecha original: 23/10/2020 - La Plata, Argentina
+## =============================================================================
 
 library(gdalUtils)
 library(raster)
 library(rgdal)
-#library(R.utils)
-#library(maptools)
 
+# --- Configuración -----------------------------------------------------------
+# Colocar el archivo .h5 en data/raw/ y editar el nombre aquí
+filename  <- "data/raw/VNP46A1.A2020285.h12v12.001.2020286073702.h5"
 
-setwd("C:\\Users\\solre\\Desktop\\S5P")
-filename = "C:\\Users\\solre\\Desktop\\S5P\\VNP46A1.A2020285.h12v12.001.2020286073702.h5"
-file_save <- "intermedio.tif"
-file_export <- "DNB_Sensor_Radiance.tif"
+# Archivo intermedio (se sobreescribe)
+file_tmp  <- "data/processed/intermedio.tif"
 
-# # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # 
+# Archivo de salida final
+file_out  <- "data/processed/DNB_Sensor_Radiance.tif"
 
-# CORROBORAR:
-# gdal_setInstallation(verbose=TRUE) # ver version gdal
-# getOption("gdalUtils_gdalPath")  #verificar que podamos abrir HDF5
-# gdal_chooseInstallation(hasDrivers="HDF5")
+# CRS de salida
+crs_project <- "+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84 +towgs84=0,0,0"
 
-# # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # 
+# Valor de relleno (NA) del producto VNP46A1
+na_fill <- 65535
 
+# Índice de la subdataset a extraer (5 = DNB_At_Sensor_Radiance_500m)
+sds_index <- 5
 
-## Inspect hdf5
+# --- Verificación de GDAL ----------------------------------------------------
+# Descomentar para verificar que GDAL tenga soporte HDF5:
+# gdal_setInstallation(verbose = TRUE)
+# gdal_chooseInstallation(hasDrivers = "HDF5")
 
-info <-  gdalinfo(filename) #Abrir hdf5
+# --- Procesamiento ------------------------------------------------------------
 
-info[207]  #Long Name
-#crs_modis = '+proj=sinu +lon_0=0 +x_0=0 +y_0=0 +R=6371007.181 +units=m +no_defs'
-crs_project = "+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84 +towgs84=0,0,0"
+# 1) Inspeccionar metadatos del HDF5
+info <- gdalinfo(filename)
 
-
-
-## Open hdf5
+# 2) Extraer subdataset de interés
 sds <- get_subdatasets(filename)
+message("Subdatasets disponibles:")
+print(sds)
+message("Extrayendo subdataset ", sds_index, ": ", sds[sds_index])
 
-gdal_translate(sds[5], dst_dataset = file_save)
+gdal_translate(sds[sds_index], dst_dataset = file_tmp)
 
-VIIRS_raster <- raster(file_save, crs = crs_project)
+# 3) Leer como raster y asignar CRS
+VIIRS_raster <- raster(file_tmp, crs = crs_project)
 
+# 4) Marcar valores de relleno como NA
+NAvalue(VIIRS_raster) <- na_fill
 
-# NA 
-NAvalue(VIIRS_raster) <- 65535
+# 5) Asignar extensión geográfica desde los metadatos del HDF5
+#    Los metadatos contienen EastBoundingCoord, NorthBoundingCoord, etc.
+#    Se extraen parseando las líneas relevantes de gdalinfo
+extract_coord <- function(info, pattern) {
+  line <- grep(pattern, info, value = TRUE)[1]
+  as.numeric(regmatches(line, regexpr("-?[0-9]+\\.?[0-9]*", line)))
+}
 
-# Extention
-xmax =  as.numeric(substr(info[183], nchar(info[183])-3,nchar(info[183])-1)) #EastBoundingCoord
-ymax = as.numeric(substr(info[191], nchar(info[191])-3,nchar(info[191])-1)) #NorthBoundingCoord
-ymin = as.numeric(substr(info[204], nchar(info[204])-3,nchar(info[204])-1)) #SouthBoundingCoord
-xmin = as.numeric(substr(info[209], nchar(info[209])-3,nchar(info[209])-1))  #WestBoundingCoord
+xmax <- extract_coord(info, "EastBoundingCoord")
+xmin <- extract_coord(info, "WestBoundingCoord")
+ymax <- extract_coord(info, "NorthBoundingCoord")
+ymin <- extract_coord(info, "SouthBoundingCoord")
 
-
+message("Extensión: xmin=", xmin, " xmax=", xmax, " ymin=", ymin, " ymax=", ymax)
 extent(VIIRS_raster) <- extent(xmin, xmax, ymin, ymax)
 
+# 6) Exportar como GeoTIFF
+writeRaster(VIIRS_raster, file_out, format = "GTiff", overwrite = TRUE)
+message("GeoTIFF exportado: ", file_out)
 
-writeRaster(VIIRS_raster, file_export, format = "GTiff", overwrite=TRUE)
-
+# Limpiar archivo intermedio
+if (file.exists(file_tmp)) file.remove(file_tmp)
